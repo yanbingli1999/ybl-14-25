@@ -5,9 +5,10 @@ import StationOrderPanel from '@/components/Station/StationOrderPanel';
 import StatsPanel from '@/components/StatsPanel/StatsPanel';
 import DispatchResultModal from '@/components/DispatchResultModal/DispatchResultModal';
 import GameOverModal from '@/components/GameOverModal/GameOverModal';
+import WarehousePanel from '@/components/Warehouse/WarehousePanel';
 import { getStationProgress } from '@/engine/contractSystem';
 import useGameStore from '@/store/useGameStore';
-import { Train, Candy } from 'lucide-react';
+import { Train, Candy, Warehouse } from 'lucide-react';
 
 export default function Home() {
   const { profile } = useGameStore();
@@ -74,6 +75,14 @@ export default function Home() {
               </div>
               <StationOrderPanel />
             </div>
+
+            <div>
+              <div className="mb-3 flex items-center gap-2 text-gray-600">
+                <Warehouse className="w-5 h-5" />
+                <span className="font-medium">站外仓库</span>
+              </div>
+              <WarehousePanel />
+            </div>
           </div>
         </div>
 
@@ -86,6 +95,11 @@ export default function Home() {
             <li>• 匹配度高获得奖励，错装会被扣除罚金</li>
             <li>• 完成订单获得信誉，解锁更多车站</li>
             <li>• 4连消生成炸弹糖（范围消除），5连消生成彩虹糖（消除同色）</li>
+            <li>• 🏪 站外仓库：车厢装满后溢出的糖果会自动存入仓库</li>
+            <li>• 💰 仓库需要支付日租金，等级越高容量越大、防虫效果越好</li>
+            <li>• ⏰ 仓库中的糖果会随时间变质，防虫等级越高变质越少</li>
+            <li>• 📦 发车时可勾选「从仓库补货」，用库存糖果补充订单缺口</li>
+            <li>• 🎯 合理规划库存，让消除成果在多局游戏之间累积增值！</li>
           </ul>
         </div>
 

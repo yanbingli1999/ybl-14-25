@@ -60,6 +60,61 @@ export const INITIAL_TRAIN: Train = {
   ],
 };
 
+export const WAREHOUSE_LEVELS = [
+  {
+    level: 1,
+    name: '简易仓库',
+    capacity: 50,
+    dailyRent: 5,
+    pestResistance: 0.2,
+    upgradeCost: 0,
+    description: '最基础的仓库，防虫效果差',
+  },
+  {
+    level: 2,
+    name: '标准仓库',
+    capacity: 100,
+    dailyRent: 15,
+    pestResistance: 0.4,
+    upgradeCost: 200,
+    description: '中等容量，防虫效果一般',
+  },
+  {
+    level: 3,
+    name: '高级仓库',
+    capacity: 200,
+    dailyRent: 30,
+    pestResistance: 0.6,
+    upgradeCost: 500,
+    description: '大容量，防虫效果良好',
+  },
+  {
+    level: 4,
+    name: '冷藏仓库',
+    capacity: 350,
+    dailyRent: 60,
+    pestResistance: 0.8,
+    upgradeCost: 1000,
+    description: '超大容量，防虫效果优秀',
+  },
+  {
+    level: 5,
+    name: '皇家仓库',
+    capacity: 500,
+    dailyRent: 100,
+    pestResistance: 0.95,
+    upgradeCost: 2000,
+    description: '顶级仓库，几乎不会变质',
+  },
+];
+
+export const WAREHOUSE_CONFIG = {
+  DECAY_INTERVAL_HOURS: 24,
+  DECAY_BASE_RATE: 0.1,
+  MAX_STORAGE_DAYS: 7,
+  AUTO_STORE_OVERFLOW: true,
+};
+
 export const GAME_CONFIG = {
   BOARD_SIZE,
   INITIAL_MOVES: 30,

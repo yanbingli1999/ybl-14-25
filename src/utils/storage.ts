@@ -11,16 +11,19 @@ import {
   StationOrder,
   Position,
   DispatchResult,
+  Warehouse,
 } from '@/types';
 import { STATIONS, INITIAL_TRAIN, GAME_CONFIG } from '@/data/config';
 import { createInitialBoard } from '@/engine/matchEngine';
 import { generateOrder } from '@/engine/contractSystem';
+import { createInitialWarehouse, processWarehouseTick } from '@/engine/warehouseSystem';
 
 const STORAGE_KEYS = {
   PROFILE: 'candy-train-profile',
   STATS: 'candy-train-stats',
   SETTINGS: 'candy-train-settings',
   GAME_STATE: 'candy-train-game-state',
+  WAREHOUSE: 'candy-train-warehouse',
 };
 
 export interface PersistedGameState {
@@ -324,11 +327,52 @@ export function recordDispatchStats(
   saveStats(stats);
 }
 
+export function saveWarehouse(warehouse: Warehouse): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.WAREHOUSE, JSON.stringify(warehouse));
+  } catch (e) {
+    console.error('Failed to save warehouse:', e);
+  }
+}
+
+export function loadWarehouse(): Warehouse {
+  try {
+    const data = localStorage.getItem(STORAGE_KEYS.WAREHOUSE);
+    if (data) {
+      return JSON.parse(data) as Warehouse;
+    }
+  } catch (e) {
+    console.error('Failed to load warehouse:', e);
+  }
+  return createInitialWarehouse();
+}
+
+export function loadAndProcessWarehouse(): {
+  warehouse: Warehouse;
+  rentDue: number;
+  totalDecayed: number;
+} {
+  const warehouse = loadWarehouse();
+  const profile = loadProfile();
+  const result = processWarehouseTick(warehouse, profile.coins);
+  
+  if (result.rentDue > 0 || result.totalDecayed > 0) {
+    saveWarehouse(result.warehouse);
+  }
+  
+  return result;
+}
+
+export function resetWarehouse(): void {
+  localStorage.removeItem(STORAGE_KEYS.WAREHOUSE);
+}
+
 export function resetAllData(): void {
   localStorage.removeItem(STORAGE_KEYS.PROFILE);
   localStorage.removeItem(STORAGE_KEYS.STATS);
   localStorage.removeItem(STORAGE_KEYS.SETTINGS);
   localStorage.removeItem(STORAGE_KEYS.GAME_STATE);
+  localStorage.removeItem(STORAGE_KEYS.WAREHOUSE);
 }
 
 export { DEFAULT_PROFILE, DEFAULT_STATS, INITIAL_TRAIN };

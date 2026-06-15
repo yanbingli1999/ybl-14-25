@@ -151,5 +151,28 @@ export interface AllStats {
   reputations: StatsReputation[];
 }
 
+export interface WarehouseItem {
+  candyType: CandyType;
+  quantity: number;
+  storedAt: number;
+}
+
+export interface WarehouseLevel {
+  level: number;
+  name: string;
+  capacity: number;
+  dailyRent: number;
+  pestResistance: number;
+  upgradeCost: number;
+  description: string;
+}
+
+export interface Warehouse {
+  level: number;
+  items: WarehouseItem[];
+  lastRentCollectedAt: number;
+  lastDecayAt: number;
+}
+
 export const BOARD_SIZE = 8;
 export const BASIC_CANDY_TYPES: CandyType[] = ['strawberry', 'lemon', 'mint', 'blueberry', 'grape'];

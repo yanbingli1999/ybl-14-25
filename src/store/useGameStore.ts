@@ -8,6 +8,8 @@ import {
   DispatchResult,
   PlayerProfile,
   AllStats,
+  Warehouse,
+  CandyType,
 } from '@/types';
 import {
   createInitialBoard,
@@ -25,7 +27,7 @@ import {
   checkSwapHasSpecial,
   triggerSpecialCandy,
 } from '@/engine/matchEngine';
-import { loadCandiesToTrain, clearTrain } from '@/engine/loadingSystem';
+import { loadCandiesToTrain, clearTrain, getCandyLoad } from '@/engine/loadingSystem';
 import { calculateDispatchResult } from '@/engine/dispatchSystem';
 import { generateOrder } from '@/engine/contractSystem';
 import {
@@ -37,8 +39,15 @@ import {
   loadGameState,
   clearGameState,
   recordDispatchStats,
+  saveWarehouse,
+  loadAndProcessWarehouse,
 } from '@/utils/storage';
-import { INITIAL_TRAIN, GAME_CONFIG, STATIONS } from '@/data/config';
+import { INITIAL_TRAIN, GAME_CONFIG, STATIONS, WAREHOUSE_CONFIG } from '@/data/config';
+import {
+  storeMultipleCandies,
+  retrieveCandies,
+  upgradeWarehouse as doUpgradeWarehouse,
+} from '@/engine/warehouseSystem';
 
 interface GameStore {
   board: (Candy | null)[][];
@@ -56,6 +65,11 @@ interface GameStore {
   profile: PlayerProfile;
   stats: AllStats;
   showStats: boolean;
+  warehouse: Warehouse;
+  warehouseRentDue: number;
+  warehouseDecayed: number;
+  useWarehouseForDispatch: boolean;
+  showWarehousePanel: boolean;
 
   selectCandy: (pos: Position) => void;
   processSwap: (pos1: Position, pos2: Position) => void;
@@ -67,12 +81,27 @@ interface GameStore {
   closeResult: () => void;
   changeStation: (stationId: string) => void;
   persist: () => void;
+  upgradeWarehouse: () => boolean;
+  setUseWarehouseForDispatch: (use: boolean) => void;
+  setShowWarehousePanel: (show: boolean) => void;
+  refreshWarehouse: () => void;
+  moveFromWarehouseToTrain: (candyType: CandyType, quantity: number) => boolean;
 }
 
 const useGameStore = create<GameStore>((set, get) => {
   const initialProfile = loadProfile();
   const initialStats = loadStats();
   const persisted = loadGameState(initialProfile);
+  const warehouseResult = loadAndProcessWarehouse();
+  const initialWarehouse = warehouseResult.warehouse;
+
+  let initialCoins = initialProfile.coins - warehouseResult.rentDue;
+  initialCoins = Math.max(0, initialCoins);
+  if (warehouseResult.rentDue > 0) {
+    const updatedProfile = { ...initialProfile, coins: initialCoins };
+    saveProfile(updatedProfile);
+    initialProfile.coins = initialCoins;
+  }
 
   return {
     board: persisted?.board || createInitialBoard(),
@@ -90,6 +119,11 @@ const useGameStore = create<GameStore>((set, get) => {
     profile: initialProfile,
     stats: initialStats,
     showStats: false,
+    warehouse: initialWarehouse,
+    warehouseRentDue: warehouseResult.rentDue,
+    warehouseDecayed: warehouseResult.totalDecayed,
+    useWarehouseForDispatch: false,
+    showWarehousePanel: false,
 
     persist: () => {
       const s = get();
@@ -105,6 +139,7 @@ const useGameStore = create<GameStore>((set, get) => {
         gamePhase: s.gamePhase,
         dispatchResult: s.dispatchResult,
       });
+      saveWarehouse(s.warehouse);
     },
 
     selectCandy: (pos: Position) => {
@@ -240,12 +275,22 @@ const useGameStore = create<GameStore>((set, get) => {
         }
 
         const candyCounts = countClearedCandies(allMatches);
-        const { train: newTrain } = loadCandiesToTrain(get().train, candyCounts);
+        const { train: newTrain, overflow } = loadCandiesToTrain(get().train, candyCounts);
+
+        let newWarehouse = get().warehouse;
+        if (WAREHOUSE_CONFIG.AUTO_STORE_OVERFLOW) {
+          const hasOverflow = Object.values(overflow).some(v => v > 0);
+          if (hasOverflow) {
+            const storeResult = storeMultipleCandies(newWarehouse, overflow);
+            newWarehouse = storeResult.warehouse;
+          }
+        }
 
         const newMaxCombo = Math.max(get().maxCombo, totalCombo);
 
         set(state => ({
           train: newTrain,
+          warehouse: newWarehouse,
           score: state.score + totalScore,
           combo: totalCombo,
           maxCombo: newMaxCombo,
@@ -264,11 +309,41 @@ const useGameStore = create<GameStore>((set, get) => {
     },
 
     dispatchTrain: () => {
-      const { train, currentOrder, profile, gamePhase, moves, maxCombo } = get();
+      const { train, currentOrder, profile, gamePhase, moves, maxCombo, warehouse, useWarehouseForDispatch } = get();
 
       if (gamePhase !== 'playing' || !currentOrder) return;
 
-      const result = calculateDispatchResult(train, currentOrder);
+      let finalTrain = train;
+      let finalWarehouse = warehouse;
+
+      if (useWarehouseForDispatch) {
+        const tempTrain = { ...train, carriages: train.carriages.map(c => ({ ...c })) };
+        let tempWarehouse = { ...warehouse };
+
+        for (const item of currentOrder.items) {
+          const currentLoad = getCandyLoad(tempTrain, item.candyType);
+          const needed = item.quantity - currentLoad;
+          
+          if (needed > 0) {
+            const result = retrieveCandies(tempWarehouse, item.candyType, needed);
+            tempWarehouse = result.warehouse;
+            
+            if (result.retrieved > 0) {
+              const carriage = tempTrain.carriages.find(c => c.candyType === item.candyType);
+              if (carriage) {
+                const space = carriage.capacity - carriage.currentLoad;
+                const toAdd = Math.min(result.retrieved, space);
+                carriage.currentLoad += toAdd;
+              }
+            }
+          }
+        }
+
+        finalTrain = tempTrain;
+        finalWarehouse = tempWarehouse;
+      }
+
+      const result = calculateDispatchResult(finalTrain, currentOrder);
 
       let newCoins = profile.coins + result.reward - result.penalty;
       newCoins = Math.max(0, newCoins);
@@ -286,6 +361,7 @@ const useGameStore = create<GameStore>((set, get) => {
       };
 
       saveProfile(newProfile);
+      saveWarehouse(finalWarehouse);
 
       const movesUsed = GAME_CONFIG.INITIAL_MOVES - moves;
       recordDispatchStats(
@@ -304,6 +380,8 @@ const useGameStore = create<GameStore>((set, get) => {
         dispatchResult: result,
         profile: newProfile,
         stats: loadStats(),
+        warehouse: finalWarehouse,
+        useWarehouseForDispatch: false,
       });
 
       clearGameState();
@@ -381,6 +459,95 @@ const useGameStore = create<GameStore>((set, get) => {
       }));
 
       get().persist();
+    },
+
+    upgradeWarehouse: (): boolean => {
+      const { warehouse, profile } = get();
+      
+      const result = doUpgradeWarehouse(warehouse, profile.coins);
+      
+      if (!result.success) {
+        return false;
+      }
+
+      const newProfile = {
+        ...profile,
+        coins: profile.coins - result.cost,
+      };
+
+      saveProfile(newProfile);
+      saveWarehouse(result.warehouse);
+
+      set({
+        warehouse: result.warehouse,
+        profile: newProfile,
+      });
+
+      return true;
+    },
+
+    setUseWarehouseForDispatch: (use: boolean) => {
+      set({ useWarehouseForDispatch: use });
+    },
+
+    setShowWarehousePanel: (show: boolean) => {
+      set({ showWarehousePanel: show });
+    },
+
+    refreshWarehouse: () => {
+      const result = loadAndProcessWarehouse();
+      const profile = loadProfile();
+      
+      let newCoins = profile.coins - result.rentDue;
+      newCoins = Math.max(0, newCoins);
+      
+      if (result.rentDue > 0) {
+        const updatedProfile = { ...profile, coins: newCoins };
+        saveProfile(updatedProfile);
+        set({ profile: updatedProfile });
+      }
+      
+      set({
+        warehouse: result.warehouse,
+        warehouseRentDue: result.rentDue,
+        warehouseDecayed: result.totalDecayed,
+      });
+    },
+
+    moveFromWarehouseToTrain: (candyType: CandyType, quantity: number): boolean => {
+      const { warehouse, train, gamePhase } = get();
+      
+      if (gamePhase !== 'playing') return false;
+      
+      const carriage = train.carriages.find(c => c.candyType === candyType);
+      if (!carriage) return false;
+      
+      const availableSpace = carriage.capacity - carriage.currentLoad;
+      const toMove = Math.min(quantity, availableSpace);
+      
+      if (toMove <= 0) return false;
+      
+      const retrieveResult = retrieveCandies(warehouse, candyType, toMove);
+      
+      if (retrieveResult.retrieved <= 0) return false;
+      
+      const newCarriages = train.carriages.map(c => {
+        if (c.candyType === candyType) {
+          return { ...c, currentLoad: c.currentLoad + retrieveResult.retrieved };
+        }
+        return c;
+      });
+      
+      const newTrain = { ...train, carriages: newCarriages };
+      
+      set({
+        warehouse: retrieveResult.warehouse,
+        train: newTrain,
+      });
+      
+      get().persist();
+      
+      return true;
     },
   };
 });
