@@ -1,15 +1,39 @@
 import useGameStore from '@/store/useGameStore';
 import CarriageCard from './CarriageCard';
-import { getTrainLoadPercentage, getTotalLoad, getTotalCapacity } from '@/engine/loadingSystem';
+import { getTrainLoadPercentage, getTotalLoad, getTotalCapacity, getCandyLoad } from '@/engine/loadingSystem';
+import { getWarehouseUsed } from '@/engine/warehouseSystem';
 import { Train as TrainIcon } from 'lucide-react';
 
 export default function TrainPanel() {
-  const { train, dispatchTrain, gamePhase, isAnimating, moves } = useGameStore();
+  const { train, dispatchTrain, gamePhase, isAnimating, moves, useWarehouseForDispatch, warehouse, currentOrder } = useGameStore();
 
   const loadPercent = getTrainLoadPercentage(train);
   const totalLoad = getTotalLoad(train);
   const totalCapacity = getTotalCapacity(train);
-  const canDispatch = totalLoad > 0 && gamePhase === 'playing' && !isAnimating;
+  
+  let canDispatch = totalLoad > 0 && gamePhase === 'playing' && !isAnimating;
+  
+  if (useWarehouseForDispatch && currentOrder && gamePhase === 'playing' && !isAnimating) {
+    const warehouseUsed = getWarehouseUsed(warehouse);
+    if (warehouseUsed > 0) {
+      let hasUsefulWarehouseStock = false;
+      for (const item of currentOrder.items) {
+        const trainLoaded = getCandyLoad(train, item.candyType);
+        if (trainLoaded < item.quantity) {
+          const warehouseQty = warehouse.items
+            .filter(w => w.candyType === item.candyType)
+            .reduce((sum, w) => sum + w.quantity, 0);
+          if (warehouseQty > 0) {
+            hasUsefulWarehouseStock = true;
+            break;
+          }
+        }
+      }
+      if (hasUsefulWarehouseStock || totalLoad > 0) {
+        canDispatch = true;
+      }
+    }
+  }
 
   return (
     <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl p-4 shadow-lg border-2 border-amber-200">

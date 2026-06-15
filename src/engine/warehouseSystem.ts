@@ -1,4 +1,4 @@
-import { Warehouse, WarehouseItem, CandyType, WarehouseLevel } from '@/types';
+import { Warehouse, WarehouseItem, CandyType, WarehouseLevel, BASIC_CANDY_TYPES } from '@/types';
 import { WAREHOUSE_LEVELS, WAREHOUSE_CONFIG } from '@/data/config';
 
 export function createInitialWarehouse(): Warehouse {
@@ -8,6 +8,66 @@ export function createInitialWarehouse(): Warehouse {
     lastRentCollectedAt: Date.now(),
     lastDecayAt: Date.now(),
   };
+}
+
+export function validateWarehouse(warehouse: Warehouse): Warehouse {
+  let cleaned = { ...warehouse };
+
+  if (!cleaned.level || typeof cleaned.level !== 'number' || cleaned.level < 1) {
+    cleaned.level = 1;
+  }
+  if (cleaned.level > WAREHOUSE_LEVELS.length) {
+    cleaned.level = WAREHOUSE_LEVELS.length;
+  }
+
+  if (!Array.isArray(cleaned.items)) {
+    cleaned.items = [];
+  }
+
+  cleaned.items = cleaned.items
+    .filter(item => 
+      item && 
+      typeof item.candyType === 'string' && 
+      BASIC_CANDY_TYPES.includes(item.candyType as CandyType) &&
+      typeof item.quantity === 'number' && 
+      item.quantity > 0 &&
+      Number.isInteger(item.quantity) &&
+      typeof item.storedAt === 'number' &&
+      item.storedAt > 0
+    )
+    .map(item => ({
+      ...item,
+      quantity: Math.floor(Math.max(0, item.quantity)),
+    }))
+    .filter(item => item.quantity > 0);
+
+  const capacity = getWarehouseCapacity(cleaned);
+  let totalUsed = 0;
+  const validItems: WarehouseItem[] = [];
+  
+  for (const item of cleaned.items) {
+    if (totalUsed + item.quantity <= capacity) {
+      validItems.push(item);
+      totalUsed += item.quantity;
+    } else {
+      const remaining = capacity - totalUsed;
+      if (remaining > 0) {
+        validItems.push({ ...item, quantity: remaining });
+        totalUsed += remaining;
+      }
+      break;
+    }
+  }
+  cleaned.items = validItems;
+
+  if (!cleaned.lastRentCollectedAt || typeof cleaned.lastRentCollectedAt !== 'number') {
+    cleaned.lastRentCollectedAt = Date.now();
+  }
+  if (!cleaned.lastDecayAt || typeof cleaned.lastDecayAt !== 'number') {
+    cleaned.lastDecayAt = Date.now();
+  }
+
+  return cleaned;
 }
 
 export function getWarehouseLevel(level: number): WarehouseLevel {
@@ -38,12 +98,21 @@ export function storeCandies(
   candyType: CandyType,
   quantity: number
 ): { warehouse: Warehouse; stored: number; rejected: number } {
+  if (!BASIC_CANDY_TYPES.includes(candyType)) {
+    return { warehouse: { ...warehouse }, stored: 0, rejected: quantity };
+  }
+
+  const safeQuantity = Math.floor(Math.max(0, quantity));
+  if (safeQuantity <= 0) {
+    return { warehouse: { ...warehouse }, stored: 0, rejected: 0 };
+  }
+
   const available = getWarehouseAvailable(warehouse);
-  const toStore = Math.min(quantity, available);
-  const rejected = quantity - toStore;
+  const toStore = Math.min(safeQuantity, available);
+  const rejected = safeQuantity - toStore;
 
   if (toStore <= 0) {
-    return { warehouse: { ...warehouse }, stored: 0, rejected: quantity };
+    return { warehouse: { ...warehouse }, stored: 0, rejected: safeQuantity };
   }
 
   const newItem: WarehouseItem = {

@@ -1,10 +1,11 @@
 import useGameStore from '@/store/useGameStore';
 import { CANDY_CONFIG, STATIONS } from '@/data/config';
 import { getCandyLoad } from '@/engine/loadingSystem';
-import { MapPin, Flame, Coins, AlertTriangle } from 'lucide-react';
+import { MapPin, Flame, Coins, AlertTriangle, Package } from 'lucide-react';
+import { CandyType } from '@/types';
 
 export default function StationOrderPanel() {
-  const { currentOrder, train, currentStationId, profile, changeStation } = useGameStore();
+  const { currentOrder, train, currentStationId, profile, changeStation, useWarehouseForDispatch, warehouse } = useGameStore();
 
   if (!currentOrder) return null;
 
@@ -12,6 +13,12 @@ export default function StationOrderPanel() {
   const availableStations = STATIONS.filter(
     s => s.reputationRequired <= profile.reputation
   );
+
+  const getWarehouseQuantity = (candyType: CandyType): number => {
+    return warehouse.items
+      .filter(item => item.candyType === candyType)
+      .reduce((sum, item) => sum + item.quantity, 0);
+  };
 
   return (
     <div
@@ -37,9 +44,14 @@ export default function StationOrderPanel() {
         <div className="space-y-2">
           {currentOrder.items.map((item, index) => {
             const config = CANDY_CONFIG[item.candyType];
-            const loaded = getCandyLoad(train, item.candyType);
-            const progress = Math.min((loaded / item.quantity) * 100, 100);
-            const isComplete = loaded >= item.quantity;
+            const trainLoaded = getCandyLoad(train, item.candyType);
+            const warehouseQty = useWarehouseForDispatch ? getWarehouseQuantity(item.candyType) : 0;
+            const availableFromWarehouse = Math.min(warehouseQty, item.quantity - trainLoaded);
+            const totalAvailable = trainLoaded + (availableFromWarehouse > 0 ? availableFromWarehouse : 0);
+            const displayLoaded = useWarehouseForDispatch ? totalAvailable : trainLoaded;
+            const progress = Math.min((displayLoaded / item.quantity) * 100, 100);
+            const isComplete = displayLoaded >= item.quantity;
+            const trainProgress = Math.min((trainLoaded / item.quantity) * 100, 100);
 
             return (
               <div key={index} className="flex items-center gap-3">
@@ -48,17 +60,33 @@ export default function StationOrderPanel() {
                   <div className="flex justify-between text-sm mb-1">
                     <span className="font-medium text-gray-700">{config.name}</span>
                     <span className={isComplete ? 'text-green-600 font-bold' : 'text-gray-500'}>
-                      {loaded}/{item.quantity}
+                      {displayLoaded}/{item.quantity}
+                      {useWarehouseForDispatch && warehouseQty > 0 && (
+                        <span className="text-purple-500 text-xs ml-1">
+                          (+{availableFromWarehouse > 0 ? availableFromWarehouse : 0} 仓库)
+                        </span>
+                      )}
                     </span>
                   </div>
-                  <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                  <div className="h-2 bg-gray-200 rounded-full overflow-hidden relative">
                     <div
                       className="h-full rounded-full transition-all duration-500"
                       style={{
-                        width: `${progress}%`,
-                        backgroundColor: isComplete ? '#6BCB77' : config.color,
+                        width: `${trainProgress}%`,
+                        backgroundColor: config.color,
                       }}
                     />
+                    {useWarehouseForDispatch && availableFromWarehouse > 0 && (
+                      <div
+                        className="h-full absolute top-0 rounded-r transition-all duration-500"
+                        style={{
+                          left: `${trainProgress}%`,
+                          width: `${Math.min((availableFromWarehouse / item.quantity) * 100, 100 - trainProgress)}%`,
+                          backgroundColor: '#9B59B6',
+                          opacity: 0.6,
+                        }}
+                      />
+                    )}
                   </div>
                 </div>
                 {isComplete && <span className="text-green-500">✓</span>}
@@ -67,6 +95,13 @@ export default function StationOrderPanel() {
           })}
         </div>
       </div>
+
+      {useWarehouseForDispatch && (
+        <div className="flex items-center gap-2 p-2 bg-purple-50 rounded-lg text-xs text-purple-700 mb-3">
+          <Package className="w-4 h-4" />
+          <span>已启用仓库补货，紫色部分为仓库可用量</span>
+        </div>
+      )}
 
       <div className="flex items-center justify-between text-sm">
         <div className="flex items-center gap-1 text-yellow-600">
